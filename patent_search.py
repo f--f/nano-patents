@@ -29,23 +29,26 @@ def scrape_patent_web(patent_num):
     return bs4.BeautifulSoup(requests.get(patent_html).content, "lxml")
 
 
-def get_location(patent):
+def get_location(patent_html):
     """Gets location of company associated with patent entry (dict)."""
-    html = scrape_patent_web(patent['patentNumber'])
     # Grab metadata table
-    ass_loc = html.find(text="Assignee:").find_next()
+    ass_loc = patent_html.find(text="Assignee:").find_next()
     # Split tag contents so that only first assignee location is retrieved
-    ass_text = ass_loc.text.split('\n\n')[0].replace('\n','')
+    ass_text = ass_loc.text.split('\n\n')[0].replace('\n', '')
     lind = ass_text.find("(")
     rind = ass_text.rfind(")")
-    return ass_text[lind+1:rind]
+    return ass_text[lind + 1:rind]
 
 
-def get_abstract(patent):
+def get_title(patent_html):
+    """Gets title of patent entry (dict). Avoids case mangling (MRI -> Mri)
+    associated with the API results."""
+    return ' '.join(patent_html.find_all('font')[-1].text.split())
+
+
+def get_abstract(patent_html):
     """Gets abstract of company associated with patent entry (dict)."""
-    html = scrape_patent_web(patent['patentNumber'])
-    # Abstract is only paragraph tag on page.
-    return ' '.join(html.p.contents[0].split())
+    return ' '.join(patent_html.p.contents[0].split())
 
 
 if __name__ == '__main__':
@@ -71,6 +74,8 @@ if __name__ == '__main__':
             city TEXT, abstract TEXT, lat REAL, lng REAL)""")
 
         for pat in patents:
+            html = scrape_patent_web(pat['patentNumber'])
+            pat['title'] = get_title(html)
             print(pat['patentNumber'], pat['title'])
 
             # Skip patent if there's no company listed.
@@ -78,13 +83,13 @@ if __name__ == '__main__':
                 print("No company assigned to patent - skipping.")
                 continue
             try:
-                city = get_location(pat)
+                city = get_location(html)
                 loc = get_latlon(city)
                 print(city, loc)
             except (IndexError, KeyError):
                 print("Can't grab location information - skipping.")
                 continue
-            abstr = get_abstract(pat)
+            abstr = get_abstract(html)
 
             db.execute("INSERT INTO patents VALUES (?,?,?,?,?,?,?,?)",
                     (int(pat['patentNumber']), pat['title'], int(pat['year']),
